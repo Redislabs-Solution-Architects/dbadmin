@@ -494,7 +494,7 @@ def exec_change(params):
 def printHelp():
     print('list [db|shards [db uid]]')
     print('create <db name> <max size in GB>')
-    print('change <db uid>|<db name> [shards <number of shards>] [replication true|false] [replicaof add <db uid>|<db name>|<uri> |start|stop|off'])
+    print('change <db uid>|<db name> [shards <number of shards>] [replication true|false] [replicaof add <db uid>|<db name>|<uri> |start|stop|off]')
     print('delete <db uid>|<db name>')
     print()
     
