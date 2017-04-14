@@ -39,7 +39,7 @@ def getlast():
     full = readline.get_line_buffer()
     tokens = full[:idx].split()
     if len(tokens) > 0:
-        return tokens[len(tokens) - 1]
+        return tokens[-1]
     else:
         return ''
 
@@ -190,8 +190,10 @@ def getDBs(ignore=''):
 
 def dbNameToUid():
     global db_name_to_id
+    
+    db_name_to_id = []
     resp = get('bdbs')
-    if resp != None:
+    if resp is not None:
         for db in resp:
             db_name_to_id[db["name"]] = db['uid']
         return True
@@ -244,14 +246,14 @@ def shardToRow(shard):
 def getReplicaOfUri(db):
     uri = ''
     resp = get('bdbs/' + str(db))
-    if resp != None:
+    if resp is not None:
         uri = 'redis://admin:' + resp['authentication_admin_pass'] + '@' + resp['endpoints'][0]['dns_name'] + ':' + str(resp['endpoints'][0]['port'])
 
     return uri
 
 def getReplicaOfList(db):
     resp = get('bdbs/' + db)
-    if resp != None:
+    if resp is not None:
         return resp['sync_sources']
     else:
         return None
@@ -305,7 +307,7 @@ def listdb(uid):
     if uid != '':
         url += '/' + uid
         resp = get(url)
-        if resp != None:
+        if resp is not None:
             rows.append(dbToRow(resp))
             printTable(rows, db_headers)
             repof = resp['sync_sources']
@@ -316,7 +318,7 @@ def listdb(uid):
                 print('Status: ' + resp['sync'])
     else:
         resp = get(url)
-        if resp != None:
+        if resp is not None:
             for db in resp:
                 rows.append(dbToRow(db))
             printTable(rows, db_headers)
@@ -330,7 +332,7 @@ def listshard(uid):
         url = 'shards'
         
     resp = get(url)
-    if resp != None:
+    if resp is not None:
         for shard in resp:
             rows.append(shardToRow(shard))
     
