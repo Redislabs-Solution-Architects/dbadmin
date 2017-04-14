@@ -10,11 +10,12 @@ Unzip the dbadmin.zip into some directory.
 
 ### Run
 
-From the command line, run the command:  `python dbadmin.py \<parameters\>`
+From the command line, run the command:  `python dbadmin.py <parameters>`
 
 #### Command line parameters
 
 `dbadmin.py [-h \<host\>] [-p \<port\>] -u \<user name\>`
+
 Where:
 
 host - Host name or IP address of the a node in the cluster. Default = "localhost"
