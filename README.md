@@ -2,7 +2,11 @@
 
 A Redis Enterprise Database administration tool
 
-Prerequisites: Python 2.7 or higher installed.
+### Prerequisites
+Python 2.7 or higher installed.
+
+For windows, install pyreadline `pip install pyreadline`
+
 
 ### Install
 
