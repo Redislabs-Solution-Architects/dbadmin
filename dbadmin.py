@@ -191,7 +191,7 @@ def getDBs(ignore=''):
 def dbNameToUid():
     global db_name_to_id
     
-    db_name_to_id = []
+    db_name_to_id.clear()
     resp = get('bdbs')
     if resp is not None:
         for db in resp:
