@@ -6,6 +6,7 @@ import requests
 from requests.auth import HTTPBasicAuth
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 from pip.cmdoptions import src
+from docutils.nodes import option
 
 
 has_tabulate = False
@@ -21,8 +22,8 @@ except ImportError:
 
 commands = ['create', 'change', 'delete', 'list', 'quit', 'help']
 list_options = ['db', 'shards']
-create_options = ['flash', 'memory']
-change_options = ['shards', 'replication', 'replicaof', 'flash', 'memory']
+create_options = ['ram', 'memory']
+change_options = ['shards', 'replication', 'replicaof', 'ram', 'memory']
 replication_options = ['true', 'false']
 replicaof_options = ['add', 'off', 'start', 'stop']
 
@@ -136,7 +137,7 @@ readline.set_completer_delims(' \t\n')
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 exitCommands = ["EXIT", "QUIT", "BYE"]
-db_headers = ['Uid', 'Name', 'Dns name', 'IP Address', 'Port', 'Shards', 'Rep', 'Memory']
+db_headers = ['Uid', 'Name', 'Dns name', 'IP Address', 'Port', 'Shards', 'Memory', 'Flags']
 shard_headers = ['Uid', 'DB Uid', 'Node Uid', 'Assigned Slots', 'Role']
 yes = ["TRUE", "YES", "1", "ON"]
 no = ["FALSE", "NO", "0", "OFF"]
@@ -225,12 +226,9 @@ def getDBUid(param):
     
 def dbToRow(db):
     row = []
+    options = ''
     row.append(str(db['uid']))
-    flash = db['bigstore']
-    if flash == True:
-        row.append(db["name"] + ' (Flash)')
-    else:
-        row.append(db["name"])
+    row.append(db["name"])
     endpoints = db['endpoints']
     if len( endpoints) > 0: 
         row.append(endpoints[0]['dns_name'])
@@ -243,14 +241,26 @@ def dbToRow(db):
         row.append('')
         row.append('')
         row.append('')
-    row.append(str(db['shards_count']))
-    row.append(str(db['replication']))
+    shards_count = db['shards_count']
+    shards = str(shards_count)
+    if db['replication'] == True:
+        options += '(R)'
+        shards += '(' + str(shards_count * 2) + ')'
+    if shards_count > 1:
+        options += '(C)'
+    row.append(shards)
     memory = db['memory_size'] / GIGABYTE 
     memoryStr = "{0}".format(str(round(memory, 1) if memory % 1 else int(memory)))
+    flash = db['bigstore']
     if flash == True:
+        options += '(F)'
         ram = db['bigstore_ram_size'] / GIGABYTE
         memoryStr += '/(' + "{0}".format(str(round(ram, 1) if ram % 1 else int(ram))) + ')'
     row.append(memoryStr)
+    repof = db['sync_sources']
+    if len(repof) > 0:
+        options += '(O)'
+    row.append(options)
     return row
 
 def shardToRow(shard):
@@ -411,7 +421,7 @@ def exec_create(params):
             except ValueError:
                 print('Illegal memory size: ' + params[1] + '. Must be a number')
                 return
-        elif p == 'flash':
+        elif p == 'ram':
             try:
                 ram_size = int(params[1]) * GIGABYTE
                 flash = True
@@ -434,7 +444,7 @@ def exec_create(params):
         data += ', "bigstore": true, "bigstore_ram_size": ' + str(ram_size) 
     data += ' }'
     resp = post('bdbs', data)
-    if resp != '':
+    if resp is not None:
         uid = resp['uid']
         listdb(str(uid))
         db_name_to_id[resp["name"]] = resp['uid']
@@ -528,7 +538,7 @@ def exec_change(params):
                 return
             
             replicaOf = True
-        elif p == 'flash':
+        elif p == 'ram':
             if len(params) < 2:
                 print('Missing RAM size for flash')
                 return
@@ -581,9 +591,9 @@ def exec_change(params):
 
 def printHelp():
     print('list [db|shards [db uid]]')
-    print('create <db name> <max size in GB> [memory <memory size in GB>] [flash <RAM size in GB>]')
+    print('create <db name> <max size in GB> [memory <memory size in GB>] [ram <RAM size in GB>]')
     print('change <db uid>|<db name> [shards <number of shards>] [replication true|false]')
-    print('       [memory <memory size in GB>] [flash <RAM size in GB>] [replicaof add <db uid>|<db name>|<uri> |start|stop|off]')
+    print('       [memory <memory size in GB>] [ram <RAM size in GB>] [replicaof add <db uid>|<db name>|<uri> |start|stop|off]')
     print('delete <db uid>|<db name>')
     print()
     

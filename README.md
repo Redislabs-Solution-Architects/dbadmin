@@ -37,10 +37,10 @@ dbadmin supports the following operations:
 
 `list [db|shards [db uid]]`
 
-`create <db name> <max size in GB> [memory <memory size in GB>] [flash <RAM size in GB>]`
+`create <db name> <max size in GB> [memory <memory size in GB>] [ram <RAM size in GB>]`
 
 `change <db uid>|<db name> [shards <number of shards>] [replication true|false]
-       [memory <memory size in GB>] [flash <RAM size in GB>] [replicaof add <db uid>|<db name>|<uri> |start|stop|off]`
+       [memory <memory size in GB>] [ram <RAM size in GB>] [replicaof add <db uid>|<db name>|<uri> |start|stop|off]`
 	   
 `delete <db uid>|<db name>`
 
@@ -50,7 +50,7 @@ dbadmin supports the following operations:
 	* shards - Set the number of shards.
 	* replication - Enable or disable replication.
 	* memory - Maximum size in GB.
-	* flash - RAM size in GB for flash.
+	* ram - RAM size in GB for flash.
 	* replicaof - add a database or uri replicate from, start, stop or disable replica of.
 * delete - Delete a database specified by name of uid.
 
