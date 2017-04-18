@@ -21,7 +21,8 @@ except ImportError:
 
 commands = ['create', 'change', 'delete', 'list', 'quit', 'help']
 list_options = ['db', 'shards']
-change_options = ['shards', 'replication', 'replicaof']
+create_options = ['flash', 'memory']
+change_options = ['shards', 'replication', 'replicaof', 'flash', 'memory']
 replication_options = ['true', 'false']
 replicaof_options = ['add', 'off', 'start', 'stop']
 
@@ -42,12 +43,17 @@ def getlast():
         return tokens[-1]
     else:
         return ''
+    
+def getparmnum():
+    idx = readline.get_begidx()
+    full = readline.get_line_buffer()
+    tokens = full[:idx].split()
+    return len(tokens)
 
 class SimpleCompleter(object):
     
     def __init__(self):
         self.command = ''
-        self.subcommand = ''
         self.db = ''
         return
 
@@ -77,6 +83,12 @@ class SimpleCompleter(object):
                 self.matches = []
             else:
                 self.getDBsOptions(text)
+        elif self.command == 'create':
+            n = getparmnum()
+            if n == 2 or n == 4:
+                self.getOptions(text, create_options)
+            else:
+                self.matches = []
         elif self.command == 'delete':
             if last == self.command:
                 self.getDBsOptions(text)
@@ -84,15 +96,10 @@ class SimpleCompleter(object):
                 self.matches = []
         elif self.command == 'change':
             if last == self.command:
-                self.subcommand = ''
                 self.getDBsOptions(text)
             elif last in getDBs():
-                if self.subcommand == '':
-                    self.db = last
-                    self.subcommand = ''
-                    self.getOptions(text, change_options)
-                else:
-                    self.matches = []
+                self.db = last
+                self.getOptions(text, change_options)
             elif last in change_options:
                 self.subcommand = last
                 if last == 'replication':
@@ -106,6 +113,8 @@ class SimpleCompleter(object):
                     self.getDBsOptions(text, self.db)
                 else:
                     self.matches = []
+            elif self.db != '':
+                self.getOptions(text, change_options)
             else:
                 self.matches = []
                     
@@ -127,7 +136,7 @@ readline.set_completer_delims(' \t\n')
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 exitCommands = ["EXIT", "QUIT", "BYE"]
-db_headers = ['Uid', 'Name', 'Dns name', 'IP Address', 'Port', 'Shards', 'Replication']
+db_headers = ['Uid', 'Name', 'Dns name', 'IP Address', 'Port', 'Shards', 'Rep', 'Memory']
 shard_headers = ['Uid', 'DB Uid', 'Node Uid', 'Assigned Slots', 'Role']
 yes = ["TRUE", "YES", "1", "ON"]
 no = ["FALSE", "NO", "0", "OFF"]
@@ -217,7 +226,11 @@ def getDBUid(param):
 def dbToRow(db):
     row = []
     row.append(str(db['uid']))
-    row.append(db["name"])
+    flash = db['bigstore']
+    if flash == True:
+        row.append(db["name"] + ' (Flash)')
+    else:
+        row.append(db["name"])
     endpoints = db['endpoints']
     if len( endpoints) > 0: 
         row.append(endpoints[0]['dns_name'])
@@ -232,6 +245,12 @@ def dbToRow(db):
         row.append('')
     row.append(str(db['shards_count']))
     row.append(str(db['replication']))
+    memory = db['memory_size'] / GIGABYTE 
+    memoryStr = "{0}".format(str(round(memory, 1) if memory % 1 else int(memory)))
+    if flash == True:
+        ram = db['bigstore_ram_size'] / GIGABYTE
+        memoryStr += '/(' + "{0}".format(str(round(ram, 1) if ram % 1 else int(ram))) + ')'
+    row.append(memoryStr)
     return row
 
 def shardToRow(shard):
@@ -243,6 +262,13 @@ def shardToRow(shard):
     row.append(shard['role'])
     return row
 
+def getMemorySize(db):
+    resp = get('bdbs/' + db)
+    if resp is not None:
+        return resp['memory_size']
+    else:
+        return 0
+    
 def getReplicaOfUri(db):
     uri = ''
     resp = get('bdbs/' + str(db))
@@ -363,22 +389,50 @@ def exec_list(params):
 def exec_create(params):
     global db_name_to_id
     
-    if len(params) < 2:
-        print('Missing parameters for create')
+    if len(params) < 1:
+        print('Missing database name')
         return 
     name = params[0]
-    memory_size = 0
-    try:
-        memory_size = int(params[1]) * GIGABYTE
-    except ValueError:
-        print('Illegal memory size: ' + params[1] + '. Must be a number')
-        return
+    memory_size = 1 * GIGABYTE
+    ram_size = 0
+    flash = False
     
+    params = params[1:]
+    
+    while len(params) > 0:
+        p = params[0]
+        if len(params) < 2:
+            print("Missing parameter for :" + p)
+            return
+        
+        if p == 'memory':
+            try:
+                memory_size = int(params[1]) * GIGABYTE
+            except ValueError:
+                print('Illegal memory size: ' + params[1] + '. Must be a number')
+                return
+        elif p == 'flash':
+            try:
+                ram_size = int(params[1]) * GIGABYTE
+                flash = True
+            except ValueError:
+                print('Illegal ram size: ' + params[1] + '. Must be a number')
+                return
+        
+        params = params[2:]
+        
+    if ram_size > memory_size:
+        print('Illegal RAM size: ' + str(ram_size) + '. Must less than total memory size: ' + str(memory_size))
+        return
+        
     if name in db_name_to_id:
         print('A database with this name already exist: ' + name)
         return
     
-    data = '{ "name": "' + name + '", "type": "redis",  "memory_size": ' + str(memory_size) + ' }'
+    data = '{ "name": "' + name + '", "type": "redis",  "memory_size": ' + str(memory_size) 
+    if flash == True:
+        data += ', "bigstore": true, "bigstore_ram_size": ' + str(ram_size) 
+    data += ' }'
     resp = post('bdbs', data)
     if resp != '':
         uid = resp['uid']
@@ -423,6 +477,10 @@ def exec_change(params):
     replicaOf = False
     sync = ''
     repof = ''
+    flash = False
+    memory = False
+    memory_size = 0
+    ram_size = 0
     while len(params) > 0:
         p = params[0]
         if p == 'replication':
@@ -470,33 +528,62 @@ def exec_change(params):
                 return
             
             replicaOf = True
+        elif p == 'flash':
+            if len(params) < 2:
+                print('Missing RAM size for flash')
+                return
+        
+            try:
+                ram_size = int(params[1]) * GIGABYTE
+                flash = True
+            except ValueError:
+                print('Illegal RAM size: ' + params[1] + '. Must be a number')
+                return
+        elif p == 'memory':
+            if len(params) < 2:
+                print('Missing memory size')
+                return
+            try:
+                memory_size = int(params[1]) * GIGABYTE
+                memory = True
+            except ValueError:
+                print('Illegal memory size: ' + params[1] + '. Must be a number')
+                return            
         else:
             print('Invalid change action: ' + p)
             return
         params = params[2:]
     
+    if memory_size == 0:
+        memory_size = getMemorySize(str(uid))
+    if ram_size > memory_size:
+        print('Illegal RAM size: ' + params[1] + '. Must less than total memory size: ' + str(memory_size / GIGABYTE))
+        return
+        
     data = '{ '
     if replication_changed == True:
         data += '"replication": ' + replication
     if sharding == True:
-        if replication_changed == True:
-            data += ', '
-        data += '"shard_key_regex": [ { "regex": ".*\\\{(?<tag>.*)\\\}.*" }, { "regex": "(?<tag>.*)" } ], "shards_count": ' + str(shards)
+        data += ', "shard_key_regex": [ { "regex": ".*\\\{(?<tag>.*)\\\}.*" }, { "regex": "(?<tag>.*)" } ], "shards_count": ' + str(shards)
     if replicaOf == True:
-        if replication_changed == True or replication_changed == True:
-            data += ', '
-        
         if sync != '':
-            data += '"sync": "' + sync + '"'
+            data += ', "sync": "' + sync + '"'
         if repof != '':
             data += ', "sync_sources": ' + repof
+    if memory == True:
+        data += ', "memory_size": ' + str(memory_size) 
+    if flash == True:
+        data += ', "bigstore": true, "bigstore_ram_size": ' + str(ram_size) 
     data += ' }'
+    if data[2] == ',':
+        data = data[:2] + data[3:]
     put('bdbs/' + str(uid), data)
 
 def printHelp():
     print('list [db|shards [db uid]]')
-    print('create <db name> <max size in GB>')
-    print('change <db uid>|<db name> [shards <number of shards>] [replication true|false] [replicaof add <db uid>|<db name>|<uri> |start|stop|off]')
+    print('create <db name> <max size in GB> [memory <memory size in GB>] [flash <RAM size in GB>]')
+    print('change <db uid>|<db name> [shards <number of shards>] [replication true|false]')
+    print('       [memory <memory size in GB>] [flash <RAM size in GB>] [replicaof add <db uid>|<db name>|<uri> |start|stop|off]')
     print('delete <db uid>|<db name>')
     print()
     
