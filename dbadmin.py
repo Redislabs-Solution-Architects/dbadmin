@@ -5,9 +5,6 @@ import sys, getopt, getpass, json
 import requests
 from requests.auth import HTTPBasicAuth
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
-from pip.cmdoptions import src
-from docutils.nodes import option
-
 
 has_tabulate = False
 try:
