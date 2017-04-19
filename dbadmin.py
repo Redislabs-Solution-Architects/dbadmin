@@ -63,7 +63,11 @@ class SimpleCompleter(object):
             
     def getDBsOptions(self, text, ignore=''):
         dbs = getDBs(ignore)
-        self.getOptions(text, dbs)
+        names = int(len(dbs) / 2)
+        if text == '':
+            self.getOptions(text, dbs[:names])
+        else:
+            self.getOptions(text, dbs)
 
     def complete(self, text, state):
         response = None
@@ -194,6 +198,8 @@ def getDBs(ignore=''):
             names.append(i[0])
             uids.append(str(i[1]))
     return names + uids
+
+
 
 def dbNameToUid():
     global db_name_to_id
