@@ -53,7 +53,11 @@ class SimpleCompleter(object):
         self.dbadmin = admin
         self.command = ''
         self.db = ''
-        return
+        self.create_options = DBAdmin.create_options
+        self.change_options = DBAdmin.change_options
+        if self.dbadmin.isRackAware():
+            self.create_options += ['rack']
+            self.change_options += ['rack']
 
     def getOptions(self, text, options, ignore=[]):
         options = [i for i in options if i not in ignore]
@@ -88,12 +92,16 @@ class SimpleCompleter(object):
                 self.getDBsOptions(text)
         elif self.command == 'create':
             n = getparmnum()
-            if n == 2:
-                self.getOptions(text, DBAdmin.create_options + ['json'])
+            if n == 1:
+                self.matches = []
+            elif n == 2:
+                self.getOptions(text, self.create_options + ['json'])
             elif 'json' in gettokens():
                 self.matches = []
-            elif n % 2 == 0:
-                self.getOptions(text, DBAdmin.create_options, gettokens()[2:])
+            elif last == 'replication' or last == 'rack':
+                self.getOptions(text, self.create_options, gettokens()[2:])
+            elif last not in self.create_options:
+                self.getOptions(text, self.create_options, gettokens()[2:])
             else:
                 self.matches = []
         elif self.command == 'delete':
@@ -106,12 +114,12 @@ class SimpleCompleter(object):
                 self.getDBsOptions(text)
             elif last in self.dbadmin.getDBs():
                 self.db = last
-                self.getOptions(text, DBAdmin.change_options + ['json'])
+                self.getOptions(text, self.change_options + ['json'])
             elif 'json' in gettokens()[2:]:
                 self.matches = []
-            elif last in DBAdmin.change_options:
+            elif last in self.change_options:
                 self.subcommand = last
-                if last == 'replication':
+                if last == 'replication' or last == 'rack':
                     self.getOptions(text, DBAdmin.replication_options)
                 elif last == 'replicaof':
                     self.getOptions(text, DBAdmin.replicaof_options)
@@ -223,6 +231,8 @@ def dbToRow(db):
     repof = db['sync_sources']
     if len(repof) > 0:
         options += '(O)'
+    if db['rack_aware'] == True:
+        options += '(K)'
     row.append(options)
     return row
 
@@ -263,7 +273,7 @@ def printTable(rows, headers):
 
 class DBAdmin():
     list_options = ['db', 'shards']
-    create_options = ['ram', 'memory']
+    create_options = ['ram', 'memory', 'port', 'replication']
     change_options = ['shards', 'replication', 'replicaof', 'ram', 'memory']
     replication_options = ['true', 'false']
     replicaof_options = ['add', 'off', 'start', 'stop']
@@ -273,7 +283,14 @@ class DBAdmin():
     def __init__(self, conn):
         self.conn = conn
         self.db_name_to_id = dict()
-        
+        self.rackAware = False
+        resp = conn.get('cluster')
+        if resp is not None:
+            self.rackAware = resp['rack_aware']
+              
+    def isRackAware(self):
+        return self.rackAware
+       
     def getDBs(self, ignore=''):
         names = []
         uids = []
@@ -306,6 +323,13 @@ class DBAdmin():
         
         return uid
     
+    def getReplication(self, db):
+        resp = self.conn.get('bdbs/' + db)
+        if resp is not None:
+            return resp['replication']
+        else:
+            return False
+        
     def getMemorySize(self, db):
         resp = self.conn.get('bdbs/' + db)
         if resp is not None:
@@ -412,28 +436,47 @@ class DBAdmin():
         memory_size = 1 * GIGABYTE
         ram_size = 0
         flash = False
+        port = 0 
+        replication = False
+        rack = False
         
         params = params[1:]
         data = ''
         while len(params) > 0 and data == '':
             p = params[0]
-            if len(params) < 2:
-                print("Missing parameter for :" + p)
-                return
             
             if p == 'memory':
+                if len(params) < 2:
+                    print("Missing parameter for :" + p)
+                    return
                 try:
                     memory_size = int(params[1]) * GIGABYTE
                 except ValueError:
                     print('Illegal memory size: ' + params[1] + '. Must be a number')
                     return
             elif p == 'ram':
+                if len(params) < 2:
+                    print("Missing parameter for :" + p)
+                    return
                 try:
                     ram_size = int(params[1]) * GIGABYTE
                     flash = True
                 except ValueError:
                     print('Illegal ram size: ' + params[1] + '. Must be a number')
                     return
+            elif p == 'port':
+                if len(params) < 2:
+                    print("Missing parameter for :" + p)
+                    return
+                try:
+                    port = int(params[1])
+                except ValueError:
+                    print('Illegal port number: ' + params[1] + '. Must be a number')
+                    return
+            if p == 'replication':
+                replication = True
+            elif p == 'rack':
+                rack = True
             elif p == 'json':
                 data = params[1]
             
@@ -448,9 +491,17 @@ class DBAdmin():
                 print('A database with this name already exist: ' + name)
                 return
             
-            data = '{ "name": "' + name + '", "type": "redis",  "memory_size": ' + str(memory_size) 
+            if rack == True and replication == False:
+                print('Replication must be enabled for rack zone awareness.')
+                return
+            
+            data = '{ "name": "' + name + '", "type": "redis",  "memory_size": ' + str(memory_size) + ', "port": ' + str(port) 
             if flash == True:
-                data += ', "bigstore": true, "bigstore_ram_size": ' + str(ram_size) 
+                data += ', "bigstore": true, "bigstore_ram_size": ' + str(ram_size)
+            if replication == True:
+                data += ', "replication": true'
+            if rack == True:
+                data += ', "rack_aware": true'
             data += ' }'
             
         resp = self.conn.post('bdbs', data)
@@ -500,6 +551,7 @@ class DBAdmin():
         memory_size = 0
         ram_size = 0
         data = ''
+        rack = ''
         while len(params) > 0 and data == '':
             p = params[0]
             if p == 'replication':
@@ -514,6 +566,21 @@ class DBAdmin():
                     replication = 'false'
                 else:
                     print('Illegal parameter for replication: ' + rep_param)
+                    return
+            elif p == 'rack':
+                if self.rackAware == False:
+                    print("Cluster does not support rack zone awareness.")
+                    return
+                if len(params) < 2:
+                    print("Missing parameter for :" + p)
+                    return
+                rack_param = params[1]
+                if rack_param.upper() in DBAdmin.yes:
+                    rack = 'true'
+                elif rack_param.upper() in DBAdmin.no:
+                    rack = 'false'
+                else:
+                    print('Illegal parameter for rack: ' + rack_param)
                     return
             elif p == 'shards':
                 sharding = True
@@ -581,10 +648,17 @@ class DBAdmin():
             if ram_size > memory_size:
                 print('Illegal RAM size: ' + params[1] + '. Must less than total memory size: ' + str(memory_size / GIGABYTE))
                 return
-                
+            
+            if rack == 'true' and (replication == 'false' or replication_changed == False and self.getReplication(str(uid)) == False):
+                print('Replication must be enabled for rack zone awareness.')
+                return
             data = '{ '
             if replication_changed == True:
                 data += '"replication": ' + replication
+                if replication == 'false' and self.isRackAware():
+                    data += ', "rack_aware": false'
+            if rack != '':
+                data += ', "rack_aware": ' + rack
             if sharding == True:
                 data += ', "shard_key_regex": [ { "regex": ".*\\\{(?<tag>.*)\\\}.*" }, { "regex": "(?<tag>.*)" } ], "shards_count": ' + str(shards)
             if replicaOf == True:
@@ -649,6 +723,7 @@ class DBAdminShell:
 def main(argv):
     host = 'localhost'
     port = 9443
+    user = ''
     try:
         opts, args = getopt.getopt(argv, 'h:p:u:')
     except getopt.GetoptError:
@@ -672,6 +747,7 @@ def main(argv):
     
     if user == '':
         print('Missing user name')
+        print("dbadmin [-h <host>] [-p <port>] -u <user name>")
         sys.exit(2)
         
     passwd = getpass.getpass()

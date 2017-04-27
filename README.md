@@ -37,11 +37,11 @@ dbadmin supports the following operations:
 
 `list [db|shards] [<db uid>|<db name>]`
 
-`create <db name> [memory <memory size in GB>] [ram <RAM size in GB for flash>]`
+`create <db name> [memory <memory size in GB>] [ram <RAM size in GB for flash>] [port <port number> [replication] [rack]`
 
 `create <db name> json <json object>`
 
-`change <db uid>|<db name> [shards <number of shards>] [replication true|false]
+`change <db uid>|<db name> [shards <number of shards>] [replication true|false] [rack true|false]
        [memory <memory size in GB>] [ram <RAM size in GB>] [replicaof add <db uid>|<db name>|<uri> |start|stop|off]`
 	   
 `change	<db uid>|<db name> json <json object>`
@@ -50,12 +50,14 @@ dbadmin supports the following operations:
 
 * list - Show databases or shards. If a db name or uid is specified, only this db or its shards will be shown.
 
-* create - Create a new database specifying its name and optionaly, the maximum size in GB and the maximum RAM size for flash.
+* create - Create a new database specifying its name and optionaly, the maximum size in GB, the maximum RAM size for flash,
+		   the port number and whether to enable replication and rack zone awareness (if supported by the cluster).
 		   You can also create the database by sepcifying a json object.
 		   
 * change - Change configuration of a database specified by name or uid. You can make the following changes:
 	* shards - Set the number of shards.
 	* replication - Enable or disable replication.
+	* rack - Enable or disable rack zone awareness (if supported by the cluster). 
 	* memory - Maximum size in GB.
 	* ram - RAM size in GB for flash.
 	* replicaof - add a database or uri replicate from, start, stop or disable replica of.
