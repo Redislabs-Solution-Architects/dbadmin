@@ -685,10 +685,12 @@ class DBAdminShell:
 
     def printHelp(self):
         print('list [db|shards] [<db uid>|<db name>]')
-        print('create <db name> [memory <memory size in GB>] [ram <RAM size in GB for flash>]')
+        print('create <db name> [memory <memory size in GB>] [ram <RAM size in GB for flash>] [port <port number>]')
+        print('       [replication] [rack]')
         print('create <db name> json <json object>')
-        print('change <db uid>|<db name> [shards <number of shards>] [replication true|false]')
-        print('       [memory <memory size in GB>] [ram <RAM size in GB for flash>] [replicaof add <db uid>|<db name>|<uri> |start|stop|off]')
+        print('change <db uid>|<db name> [shards <number of shards>] [replication true|false] [rack true|false]')
+        print('       [memory <memory size in GB>] [ram <RAM size in GB for flash>]')
+        print('       [replicaof add <db uid>|<db name>|<uri> |start|stop|off]')
         print('change <db uid>|<db name> json <json object>')
         print('delete <db uid>|<db name>')
         print()
