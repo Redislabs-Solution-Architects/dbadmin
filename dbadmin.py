@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-import sys, getopt, getpass, json, shlex
+import sys, getopt, getpass, json, shlex, re
 
 import requests
 from requests.auth import HTTPBasicAuth
@@ -123,7 +123,9 @@ class SimpleCompleter(object):
                     self.getOptions(text, DBAdmin.replication_options)
                 elif last == 'replicaof':
                     self.getOptions(text, DBAdmin.replicaof_options)
-                else:
+                elif last == 'persist':
+                    self.getOptions(text, DBAdmin.persist_options)
+                else:                
                     self.matches = []
             elif last in DBAdmin.replicaof_options:
                 if last == 'add':
@@ -191,7 +193,7 @@ class HttpConnector():
         else:
             print("OK")
 
-db_headers = ['Uid', 'Name', 'Dns name', 'IP Address', 'Port', 'Shards', 'Memory', 'Flags']
+db_headers = ['Uid', 'Name', 'Dns name', 'IP Address', 'Port', 'Shards', 'Memory', 'Persistence', 'Flags']
 shard_headers = ['Uid', 'DB Uid', 'Node Uid', 'Assigned Slots', 'Role']
 GIGABYTE = 1024 * 1024 * 1024
    
@@ -228,6 +230,10 @@ def dbToRow(db):
         ram = db['bigstore_ram_size'] / GIGABYTE
         memoryStr += '/(' + "{0}".format(str(round(ram, 1) if ram % 1 else int(ram))) + ')'
     row.append(memoryStr)
+    persist = db['data_persistence']
+    if persist != 'disabled':
+        options += '(P)'
+    row.append(persist)
     repof = db['sync_sources']
     if len(repof) > 0:
         options += '(O)'
@@ -273,10 +279,11 @@ def printTable(rows, headers):
 
 class DBAdmin():
     list_options = ['db', 'shards']
-    create_options = ['ram', 'memory', 'port', 'replication']
-    change_options = ['shards', 'replication', 'replicaof', 'ram', 'memory']
+    create_options = ['ram', 'memory', 'port', 'replication', 'persist']
+    change_options = ['shards', 'replication', 'persist', 'replicaof', 'ram', 'memory']
     replication_options = ['true', 'false']
     replicaof_options = ['add', 'off', 'start', 'stop']
+    persist_options = ['aof-1sec', 'aof-always', 'snapshot-1hour', 'snapshot-6hours', 'snapshot-24hours', 'disabled']
     yes = ["TRUE", "YES", "1", "ON"]
     no = ["FALSE", "NO", "0", "OFF"]
     
@@ -342,7 +349,8 @@ class DBAdmin():
         resp = self.conn.get('bdbs/' + str(db))
         if resp is not None:
             uri = 'redis://admin:' + resp['authentication_admin_pass'] + '@' + resp['endpoints'][0]['dns_name'] + ':' + str(resp['endpoints'][0]['port'])
-    
+        else:
+            uri = db
         return uri
 
     def getReplicaOfList(self, db):
@@ -381,9 +389,10 @@ class DBAdmin():
                 repof = resp['sync_sources']
                 if len(repof) > 0:
                     print('\nReplica of:')
-                    for r in repof:
-                        print(r['uri'])
                     print('Status: ' + resp['sync'])
+                    for r in repof:
+                        print('URI: ' + r['uri'])
+                        print('Status: ' + r['status'])
         else:
             resp = self.conn.get(url)
             if resp is not None:
@@ -482,6 +491,7 @@ class DBAdmin():
             
             params = params[2:]
         
+        self.dbNameToUid()
         if data == '':
             if ram_size > memory_size:
                 print('Illegal RAM size: ' + str(ram_size) + '. Must less than total memory size: ' + str(memory_size))
@@ -508,32 +518,29 @@ class DBAdmin():
         if resp is not None:
             uid = resp['uid']
             self.listdb(str(uid))
-            self.db_name_to_id[resp["name"]] = resp['uid']
+            self.dbNameToUid()
         
 
     def exec_delete(self, params):
         if len(params) < 1:
             print('Missing parameters for delete')
             return
-         
+        
+        self.dbNameToUid()
         uid = self.getDBUid(params[0])
         if uid < 0:
             print("Database does not exist: " + params[0])
             return
         
         self.conn.delete('bdbs/' + str(uid))
-        
-        items = self.db_name_to_id.items()
-        for i in items:
-            if i[1] == uid:
-                del self.db_name_to_id[i[0]]
-                break
+        self.dbNameToUid()
 
     def exec_change(self, params):
         if len(params) < 1:
             print('Missing parameters for change')
             return
         
+        self.dbNameToUid()
         uid = self.getDBUid(params[0])
         if uid < 0:
             print("Database does not exist: " + params[0])
@@ -542,6 +549,8 @@ class DBAdmin():
         params = params[1:]
         replication_changed = False
         replication = ''
+        persist = ''
+        persist_param = ''
         sharding = False
         replicaOf = False
         sync = ''
@@ -567,6 +576,18 @@ class DBAdmin():
                 else:
                     print('Illegal parameter for replication: ' + rep_param)
                     return
+            elif p == 'persist':
+                if len(params) < 2:
+                    print("Missing parameter for :" + p)
+                    return
+                persist_param = params[1].lower()
+                if persist_param not in DBAdmin.persist_options:
+                    print('Illegal parameter for persistence: ' + persist_param)
+                    return
+                persist_params = persist_param.split('-')
+                persist = persist_params[0]
+                if len(persist_params) > 1:
+                    persist_param = persist_params[1]
             elif p == 'rack':
                 if self.rackAware == False:
                     print("Cluster does not support rack zone awareness.")
@@ -657,6 +678,16 @@ class DBAdmin():
                 data += '"replication": ' + replication
                 if replication == 'false' and self.isRackAware():
                     data += ', "rack_aware": false'
+            data += ',"data_persistence": "' + persist + '"'
+            if persist == 'aof':
+                data += ',"aof_policy": '
+                if persist_param == '1sec':
+                    data += '"appendfsync-every-sec"'
+                elif persist_param == 'always':
+                    data += '"appendfsync-always"'
+            elif persist == 'snapshot':
+                period = re.search('^([0-9]+)[^0-9]+$', persist_param).group(1)
+                data += ',"snapshot_policy": [{ "secs": ' + str(int(period) * 3600) + ',"writes": 1 }]'           
             if rack != '':
                 data += ', "rack_aware": ' + rack
             if sharding == True:
