@@ -100,6 +100,8 @@ class SimpleCompleter(object):
                 self.matches = []
             elif last == 'replication' or last == 'rack':
                 self.getOptions(text, self.create_options, gettokens()[2:])
+            elif last == 'persist':
+                    self.getOptions(text, DBAdmin.persist_options)
             elif last not in self.create_options:
                 self.getOptions(text, self.create_options, gettokens()[2:])
             else:
@@ -377,6 +379,30 @@ class DBAdmin():
         repof.append({"uri": uri})
         return json.dumps(repof)
      
+    def getPersistParams(self, param):
+        if param not in DBAdmin.persist_options:
+                print('Illegal parameter for persistence: ' + param)
+                return None, None
+        persist_params = param.split('-')
+        persist = persist_params[0]
+        persist_param = None
+        if len(persist_params) > 1:
+            persist_param = persist_params[1]
+        return persist, persist_param
+    
+    def addPersistData(self, data, persist, param):
+        data += ',"data_persistence": "' + persist + '"'
+        if persist == 'aof':
+            data += ',"aof_policy": '
+            if param == '1sec':
+                data += '"appendfsync-every-sec"'
+            elif param == 'always':
+                data += '"appendfsync-always"'
+        elif persist == 'snapshot':
+            period = re.search('^([0-9]+)[^0-9]+$', param).group(1)
+            data += ',"snapshot_policy": [{ "secs": ' + str(int(period) * 3600) + ',"writes": 1 }]'
+        return data
+        
     def listdb(self, uid):
         url = 'bdbs'
         rows = []
@@ -486,6 +512,11 @@ class DBAdmin():
                 replication = True
             elif p == 'rack':
                 rack = True
+            elif p == 'persist':
+                if len(params) < 2:
+                    print("Missing parameter for :" + p)
+                    return
+                persist, persist_param = self.getPersistParams(params[1].lower())
             elif p == 'json':
                 data = params[1]
             
@@ -512,6 +543,7 @@ class DBAdmin():
                 data += ', "replication": true'
             if rack == True:
                 data += ', "rack_aware": true'
+            data = self.addPersistData(data, persist, persist_param)
             data += ' }'
             
         resp = self.conn.post('bdbs', data)
@@ -580,14 +612,7 @@ class DBAdmin():
                 if len(params) < 2:
                     print("Missing parameter for :" + p)
                     return
-                persist_param = params[1].lower()
-                if persist_param not in DBAdmin.persist_options:
-                    print('Illegal parameter for persistence: ' + persist_param)
-                    return
-                persist_params = persist_param.split('-')
-                persist = persist_params[0]
-                if len(persist_params) > 1:
-                    persist_param = persist_params[1]
+                persist, persist_param = self.getPersistParams(params[1].lower())
             elif p == 'rack':
                 if self.rackAware == False:
                     print("Cluster does not support rack zone awareness.")
@@ -678,16 +703,8 @@ class DBAdmin():
                 data += '"replication": ' + replication
                 if replication == 'false' and self.isRackAware():
                     data += ', "rack_aware": false'
-            data += ',"data_persistence": "' + persist + '"'
-            if persist == 'aof':
-                data += ',"aof_policy": '
-                if persist_param == '1sec':
-                    data += '"appendfsync-every-sec"'
-                elif persist_param == 'always':
-                    data += '"appendfsync-always"'
-            elif persist == 'snapshot':
-                period = re.search('^([0-9]+)[^0-9]+$', persist_param).group(1)
-                data += ',"snapshot_policy": [{ "secs": ' + str(int(period) * 3600) + ',"writes": 1 }]'           
+            
+            data = self.addPersistData(data, persist, persist_param)
             if rack != '':
                 data += ', "rack_aware": ' + rack
             if sharding == True:
