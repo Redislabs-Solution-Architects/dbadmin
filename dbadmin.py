@@ -102,6 +102,8 @@ class SimpleCompleter(object):
                 self.getOptions(text, self.create_options, gettokens()[2:])
             elif last == 'persist':
                     self.getOptions(text, DBAdmin.persist_options)
+            elif last == 'eviction':
+                    self.getOptions(text, DBAdmin.eviction_options)
             elif last not in self.create_options:
                 self.getOptions(text, self.create_options, gettokens()[2:])
             else:
@@ -127,6 +129,8 @@ class SimpleCompleter(object):
                     self.getOptions(text, DBAdmin.replicaof_options)
                 elif last == 'persist':
                     self.getOptions(text, DBAdmin.persist_options)
+                elif last == 'eviction':
+                    self.getOptions(text, DBAdmin.eviction_options)
                 else:                
                     self.matches = []
             elif last in DBAdmin.replicaof_options:
@@ -281,11 +285,12 @@ def printTable(rows, headers):
 
 class DBAdmin():
     list_options = ['db', 'shards']
-    create_options = ['ram', 'memory', 'port', 'replication', 'persist']
-    change_options = ['shards', 'replication', 'persist', 'replicaof', 'ram', 'memory']
+    create_options = ['ram', 'memory', 'port', 'replication', 'persist', 'eviction', 'dbpass']
+    change_options = ['ram', 'memory', 'shards', 'replication', 'persist', 'eviction', 'replicaof', 'dbpass']
     replication_options = ['true', 'false']
     replicaof_options = ['add', 'off', 'start', 'stop']
     persist_options = ['aof-1sec', 'aof-always', 'snapshot-1hour', 'snapshot-6hours', 'snapshot-24hours', 'disabled']
+    eviction_options = ['volatile-lru', 'volatile-ttl', 'volatile-random', 'allkeys-lru', 'allkeys-random', 'noeviction']
     yes = ["TRUE", "YES", "1", "ON"]
     no = ["FALSE", "NO", "0", "OFF"]
     
@@ -474,6 +479,10 @@ class DBAdmin():
         port = 0 
         replication = False
         rack = False
+        persist = ''
+        persist_param = ''
+        password = ''
+        eviction = 'volatile-lru'
         
         params = params[1:]
         data = ''
@@ -517,6 +526,19 @@ class DBAdmin():
                     print("Missing parameter for :" + p)
                     return
                 persist, persist_param = self.getPersistParams(params[1].lower())
+            elif p == 'eviction':
+                if len(params) < 2:
+                    print("Missing parameter for :" + p)
+                    return
+                eviction = params[1].lower();
+                if eviction not in DBAdmin.eviction_options:
+                    print('Illegal eviction policy: ' + params[1])
+                    return
+            elif p == 'dbpass':
+                if len(params) < 2:
+                    print("Missing parameter for :" + p)
+                    return
+                password = params[1]
             elif p == 'json':
                 data = params[1]
             
@@ -543,7 +565,11 @@ class DBAdmin():
                 data += ', "replication": true'
             if rack == True:
                 data += ', "rack_aware": true'
-            data = self.addPersistData(data, persist, persist_param)
+            if persist != '':
+                data = self.addPersistData(data, persist, persist_param)
+            data += ', "eviction_policy": "' + eviction + '"'
+            if password != '':
+                data += ', "authentication_redis_pass": "' + password + '"'
             data += ' }'
             
         resp = self.conn.post('bdbs', data)
@@ -593,6 +619,10 @@ class DBAdmin():
         ram_size = 0
         data = ''
         rack = ''
+        password = ''
+        password_changed = False
+        eviction = ''
+        
         while len(params) > 0 and data == '':
             p = params[0]
             if p == 'replication':
@@ -613,6 +643,14 @@ class DBAdmin():
                     print("Missing parameter for :" + p)
                     return
                 persist, persist_param = self.getPersistParams(params[1].lower())
+            elif p == 'eviction':
+                if len(params) < 2:
+                    print("Missing parameter for :" + p)
+                    return
+                eviction = params[1].lower();
+                if eviction not in DBAdmin.eviction_options:
+                    print('Illegal eviction policy: ' + params[1])
+                    return
             elif p == 'rack':
                 if self.rackAware == False:
                     print("Cluster does not support rack zone awareness.")
@@ -681,6 +719,12 @@ class DBAdmin():
                 except ValueError:
                     print('Illegal memory size: ' + params[1] + '. Must be a number')
                     return
+            elif p == 'dbpass':
+                if len(params) < 2:
+                    print("Missing parameter for :" + p)
+                    return
+                password = params[1]
+                password_changed = True
             elif p == 'json':
                 data = params[1]         
             else:
@@ -704,7 +748,10 @@ class DBAdmin():
                 if replication == 'false' and self.isRackAware():
                     data += ', "rack_aware": false'
             
-            data = self.addPersistData(data, persist, persist_param)
+            if persist != '':
+                data = self.addPersistData(data, persist, persist_param)
+            if eviction != '':
+                data += ', "eviction_policy": "' + eviction + '"' 
             if rack != '':
                 data += ', "rack_aware": ' + rack
             if sharding == True:
@@ -717,7 +764,9 @@ class DBAdmin():
             if memory == True:
                 data += ', "memory_size": ' + str(memory_size) 
             if flash == True:
-                data += ', "bigstore": true, "bigstore_ram_size": ' + str(ram_size) 
+                data += ', "bigstore": true, "bigstore_ram_size": ' + str(ram_size)
+            if password_changed == True:
+                data += ', "authentication_redis_pass": "' + password + '"'
             data += ' }'
             if data[2] == ',':
                 data = data[:2] + data[3:]
@@ -734,13 +783,17 @@ class DBAdminShell:
     def printHelp(self):
         print('list [db|shards] [<db uid>|<db name>]')
         print('create <db name> [memory <memory size in GB>] [ram <RAM size in GB for flash>] [port <port number>]')
-        print('       [replication] [rack]')
+        print('       [replication] [rack] [persist <persistence method>] [eviction <eviction policy>] [dbpass <database password>]')
         print('create <db name> json <json object>')
         print('change <db uid>|<db name> [shards <number of shards>] [replication true|false] [rack true|false]')
         print('       [memory <memory size in GB>] [ram <RAM size in GB for flash>]')
         print('       [replicaof add <db uid>|<db name>|<uri> |start|stop|off]')
+        print('       [persist <persistence method>] [eviction <eviction policy>] [dbpass <database password>]')
         print('change <db uid>|<db name> json <json object>')
         print('delete <db uid>|<db name>')
+        print()
+        print('persistence methods: ' + ' '.join(DBAdmin.persist_options))
+        print('eviction policies: ' + ' '.join(DBAdmin.eviction_options))
         print()
     
     def execCommand(self, params):
@@ -774,10 +827,12 @@ def main(argv):
     host = 'localhost'
     port = 9443
     user = ''
+    passwd = ''
+    
     try:
-        opts, args = getopt.getopt(argv, 'h:p:u:')
+        opts, args = getopt.getopt(argv, 'h:p:u:w:')
     except getopt.GetoptError:
-        print("dbadmin [-h <host>] [-p <port>] -u <user name>")
+        print("dbadmin [-h <host>] [-p <port>] -u <user name> [-w password] [command]")
         sys.exit(2)
     
     for opt, arg in opts:
@@ -791,27 +846,32 @@ def main(argv):
                 sys.exit(2)
         elif opt == '-u':
             user = arg
+        elif opt == '-w':
+            passwd = arg
         else:
             print("Invalid parameter " + opt)
             sys.exit(2)
     
     if user == '':
         print('Missing user name')
-        print("dbadmin [-h <host>] [-p <port>] -u <user name>")
+        print("dbadmin [-h <host>] [-p <port>] -u <user name> [-w password] [command]")
         sys.exit(2)
-        
-    passwd = getpass.getpass()
+    
+    if passwd == '':    
+        passwd = getpass.getpass()
     
     httpConnection = HttpConnector(host, port, user, passwd)
     admin = DBAdmin(httpConnection)
-    readline.set_completer(SimpleCompleter(admin).complete)
-    readline.parse_and_bind('tab: complete')
-    readline.parse_and_bind('set editing-mode vi')
-    readline.set_completer_delims(' \t\n')
+    if len(args) > 0:
+        DBAdminShell(admin).execCommand(args)
+    else:
+        readline.set_completer(SimpleCompleter(admin).complete)
+        readline.parse_and_bind('tab: complete')
+        readline.parse_and_bind('set editing-mode vi')
+        readline.set_completer_delims(' \t\n')
     
-    
-    DBAdminShell(admin).run()
-    print("Goodbye")
+        DBAdminShell(admin).run()
+        print("Goodbye")
     
 if __name__ == '__main__':
     main(sys.argv[1:])
