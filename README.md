@@ -44,8 +44,8 @@ dbadmin supports the following operations:
 `create <db name> json <json object>`
 
 `change <db uid>|<db name> [shards <number of shards>] [replication true|false] [rack true|false]
-       [memory <memory size in GB>] [ram <RAM size in GB>] [replicaof add <db uid>|<db name>|<uri> |start|stop|off]`
-	   [persist <persistence method>] [eviction <eviction policy>] [dbpass <database password>]
+       [memory <memory size in GB>] [ram <RAM size in GB>] [replicaof add <db uid>|<db name>|<uri> |start|stop|off]
+	   [persist <persistence method>] [eviction <eviction policy>] [dbpass <database password>]`
 	   
 `change	<db uid>|<db name> json <json object>`
 	   
